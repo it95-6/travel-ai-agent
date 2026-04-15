@@ -23,7 +23,7 @@ class RestaurantRepository:
         *,
         area: str | None = None,
         category: str | None = None,
-        budget: str | None = None,
+        budget: str | Sequence[str] | None = None,
         keyword: str | None = None,
         limit: int = 10,
     ) -> list[Restaurant]:
@@ -34,7 +34,10 @@ class RestaurantRepository:
         if category:
             statement = statement.where(Restaurant.category.ilike(f"%{category}%"))
         if budget:
-            statement = statement.where(Restaurant.budget.ilike(f"%{budget}%"))
+            if isinstance(budget, str):
+                statement = statement.where(Restaurant.budget.ilike(f"%{budget}%"))
+            else:
+                statement = statement.where(Restaurant.budget.in_(list(budget)))
         if keyword:
             pattern = f"%{keyword}%"
             statement = statement.where(

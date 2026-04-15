@@ -1,47 +1,95 @@
-from backend.app.schemas.chat import ChatRequest, ChatResponse, RecommendationItem
+from backend.app.db.repositories.restaurant_repository import RestaurantRepository
+from backend.app.schemas.chat import ChatRequest, ChatResponse, RestaurantCandidate
+
+AREA_CANDIDATES = ("渋谷", "新宿", "銀座", "浅草", "築地", "表参道")
+CATEGORY_CANDIDATES = ("和食", "洋食", "海鮮", "カフェ", "焼肉", "寿司")
+BUDGET_CANDIDATES = {
+    "安め": ["1000-2000円", "1500-2500円", "2000-3000円"],
+    "高め": ["3000-4000円", "8000-12000円"],
+}
 
 
-def build_chat_response(request: ChatRequest) -> ChatResponse:
-    message = request.message.lower()
-    recommendations = []
+def _extract_from_candidates(message: str, candidates: tuple[str, ...]) -> str | None:
+    for candidate in candidates:
+        if candidate in message:
+            return candidate
+    return None
 
-    if any(keyword in message for keyword in ("travel", "trip", "sightseeing", "旅行", "観光")):
-        recommendations.append(
-            RecommendationItem(
-                category="travel",
-                title="浅草",
-                reason="街歩きと観光をまとめて楽しみやすい定番エリアだからです。",
-            )
+
+def _extract_area(message: str) -> str | None:
+    return _extract_from_candidates(message, AREA_CANDIDATES)
+
+
+def _extract_category(message: str) -> str | None:
+    return _extract_from_candidates(message, CATEGORY_CANDIDATES)
+
+
+def _extract_budget(message: str) -> tuple[str | None, list[str] | None]:
+    for label, allowed_budgets in BUDGET_CANDIDATES.items():
+        if label in message:
+            return label, allowed_budgets
+    return None, None
+
+
+def _build_reply(
+    *,
+    area: str | None,
+    category: str | None,
+    budget: str | None,
+    candidate_count: int,
+    used_default_search: bool,
+) -> str:
+    conditions = [value for value in (area, category, budget) if value]
+
+    if candidate_count == 0:
+        if conditions:
+            condition_text = "、".join(conditions)
+            return f"{condition_text} の条件で探しましたが、該当するレストランは見つかりませんでした。"
+        return "条件に合うレストランは見つかりませんでした。別のエリアや予算でも試せます。"
+
+    if used_default_search:
+        return "条件指定が見つからなかったため、登録済みレストランの上位候補を最大3件返します。"
+
+    condition_text = "、".join(conditions)
+    return f"{condition_text} の条件に合うレストラン候補を最大3件返します。"
+
+
+def build_chat_response(
+    request: ChatRequest,
+    repository: RestaurantRepository,
+) -> ChatResponse:
+    message = request.message
+    area = _extract_area(message)
+    category = _extract_category(message)
+    budget, budget_values = _extract_budget(message)
+
+    used_default_search = not any((area, category, budget))
+    if used_default_search:
+        restaurants = repository.list_restaurants(limit=3)
+    else:
+        restaurants = repository.search_restaurants(
+            area=area,
+            category=category,
+            budget=budget_values,
+            limit=3,
         )
 
-    if any(keyword in message for keyword in ("restaurant", "food", "eat", "レストラン", "食事", "グルメ")):
-        recommendations.append(
-            RecommendationItem(
-                category="restaurant",
-                title="築地周辺",
-                reason="飲食店の候補が多く、旅行文脈とも相性が良いからです。",
-            )
+    candidates = [
+        RestaurantCandidate(
+            name=restaurant.name,
+            area=restaurant.area,
+            category=restaurant.category,
+            budget=restaurant.budget,
+            description=restaurant.description,
         )
+        for restaurant in restaurants
+    ]
 
-    if not recommendations:
-        recommendations = [
-            RecommendationItem(
-                category="travel",
-                title="鎌倉",
-                reason="日帰りでも動きやすく、初回の提案先として扱いやすいためです。",
-            ),
-            RecommendationItem(
-                category="restaurant",
-                title="表参道カフェエリア",
-                reason="ジャンルの幅があり、好みの追加条件を聞きやすいためです。",
-            ),
-        ]
-
-    return ChatResponse(
-        reply=(
-            "最小実装のチャット応答です。"
-            "今後は SQLite や外部API連携に置き換えやすいよう、"
-            "ルーター・スキーマ・サービスを分けています。"
-        ),
-        recommendations=recommendations,
+    reply = _build_reply(
+        area=area,
+        category=category,
+        budget=budget,
+        candidate_count=len(candidates),
+        used_default_search=used_default_search,
     )
+    return ChatResponse(reply=reply, candidates=candidates)
