@@ -1,6 +1,30 @@
+from collections.abc import Generator
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+
 from backend.app.core.config import settings
 
 
 def get_database_url() -> str:
-    """Return the database URL placeholder for future SQLite integration."""
     return settings.database_url
+
+
+connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
+
+engine = create_engine(settings.database_url, connect_args=connect_args)
+SessionLocal = sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=engine,
+    class_=Session,
+    expire_on_commit=False,
+)
+
+
+def get_db() -> Generator[Session, None, None]:
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
