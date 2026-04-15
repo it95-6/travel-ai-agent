@@ -2,3 +2,4 @@
 __pycache__/
 .venv/
 .env
+travel_ai.db
