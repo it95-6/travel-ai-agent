@@ -1,0 +1,10 @@
+依存関係を入れる
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+サンプルデータを投入
+python3 -m backend.app.db.seed_restaurants
+
+APIを起動
+uvicorn backend.app.main:app --reload
